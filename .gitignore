@@ -1,0 +1,89 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pdb
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.manifest
+*.spec
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.ENV/
+
+# Secrets / environment variables
+.env
+.env.*
+!.env.example
+
+# Pipenv & Poetry
+Pipfile.lock
+poetry.lock
+
+# SQLite database
+*.sqlite3
+*.db
+
+# Migrations
+*/migrations/__pycache__/
+*/migrations/*.pyc
+*/migrations/*.pyo
+*/migrations/*.pyd
+*/migrations/*.log
+*/migrations/*.sqlite3
+*/migrations/*.db
+*/migrations/*.bak
+*/migrations/*.swp
+*/migrations/*.tmp
+*/migrations/*.~*
+*/migrations/*.orig
+
+# Django-specific
+*.log
+local_settings.py
+db.sqlite3
+media/
+staticfiles/
+static/
+.django-cache/
+*.mo
+*.pot
+
+# Test & coverage
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+test_*.xml
+coverage.xml
+htmlcov/
+.pytest_cache/
+.tox/
+.junit.xml
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+
+# MySQL / PostgreSQL dumps
+*.sql
+*.dump
+
+# Docker
+*.pid
+docker-compose.override.yml
+
+# System-specific
+.DS_Store
+Thumbs.db

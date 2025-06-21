@@ -172,8 +172,8 @@ class ReceiptParser:
 
     def to_json(self):
         return {
-            "date": self.date.isoformat(),
-            "time": self.time.strftime("%H:%M:%S"),
+            "date": None if self.date is None else self.date.isoformat(),
+            "time": None if self.time is None else self.time.strftime("%H:%M:%S"),
             "total": self.total,
             "payment_method": self.payment_method,
             "items": [] #TODO: self.items

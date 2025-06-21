@@ -1,6 +1,6 @@
 from json import dump
 from os import path
-from re import search, IGNORECASE
+from re import search, split, compile, VERBOSE, IGNORECASE
 from datetime import datetime, date, time
 from pathlib import Path
 from typing import Optional
@@ -33,7 +33,7 @@ class ReceiptParser:
         self.time = None
         self.total = None
         self.payment_method = None
-        #TODO: self.items
+        self.items = None
 
     def load_image_from_path(self, image_path: Path):
         # Check whether provided path is correct
@@ -169,6 +169,9 @@ class ReceiptParser:
         # Payment method can be found in the identifier or footer section
         self.payment_method = self.extract_payment_method(self.sections['identifier']) or self.extract_payment_method(self.sections['footer'])
 
+        # Items can be found in the items section (well who would have expected)
+        self.items = self.extract_items(self.sections['items'])
+
 
     def to_json(self):
         return {
@@ -176,7 +179,7 @@ class ReceiptParser:
             "time": None if self.time is None else self.time.strftime("%H:%M:%S"),
             "total": self.total,
             "payment_method": self.payment_method,
-            "items": [] #TODO: self.items
+            "items": self.items
         }
 
     def save_to_json_file(self, filepath):
@@ -227,6 +230,77 @@ class ReceiptParser:
 
         return best_match
 
+    # TODO: Add items count verification
+    # TODO: Add another approach if items could not be parsed correctly
+    # TODO: Optimize
+    @staticmethod
+    def extract_items(items_section: str, verify_items_count: bool = False, estimate_items_count: bool = True, estimation_threshold: float = 0.05):
+        """
+        WIP
+        :param items_section: items section
+        :param verify_items_count: whether to verify items count (WIP)
+        :param estimate_items_count: whether to estimate items count based on total amount and price of an item
+        :param estimation_threshold: threshold for count estimation (in case of fail count is set to None)
+        """
+
+        # Items list
+        # Structure: name, price, count
+        items = []
+
+        pattern = compile(
+            r"""[*x]?\s* (\d+\s*[.,\s]\s*\d{2}) \s*[=/\\]?\s* (\d+\s*[.,\s]\s*\d{2}) \s*[A-Za-z]?\d*""", VERBOSE
+            # Pattern explanation:
+            #   opcjonalnie * lub x, potem spacje
+            #   pierwsza cena (np. 59,99 / 59 99 / 59.99)
+            #   separator: spacje, = / \
+            #   druga cena (jak wyżej)
+            #   opcjonalna litera i cyfry (np. A / 4 / A5)
+        )
+
+        matches = pattern.finditer(items_section)
+        idx_current = 0
+
+        for match in matches:
+            # print(f'{match} | {match.group(1)} | {match.group(2)} | {match.start()} | {match.end()}')
+
+            item_raw = items_section[idx_current:match.start()]
+            price_raw = match.group(1)
+            total_raw = match.group(2)
+
+            count, item_raw = ReceiptParser.parse_count(item_raw)  # Get count and trim item if necessary
+            price = ReceiptParser.parse_price(price_raw)
+            total = ReceiptParser.parse_price(total_raw)
+
+            # Try to calculate the count based on extracted price and total (if count couldn't be parsed)
+            is_count_estimated = False
+
+            if estimate_items_count and not count:
+                count_estimation = total / price
+
+                if abs(count_estimation - round(count_estimation)) <= estimation_threshold:
+                    count = int(count_estimation)
+                    is_count_estimated = True
+
+            # Create a dictionary
+            items.append({
+                "name": item_raw,
+                "price": price,
+                "count": count,
+                "count_estimated": is_count_estimated
+            })
+
+            idx_current = match.end()
+
+        # TODO
+        # if verify_items_count:
+        #     comma_count = items_section.count(',')
+        #     if comma_count % 2 != 0:
+        #         raise AssertionError(f'Invalid comma count {comma_count}. Expected even number (2 commas for each product).')
+        #     if comma_count != len(items) * 2:
+        #         raise AssertionError(f'Invalid number of products. Got: {len(items)}, expected: {int(comma_count / 2)}')
+
+        return items
+
     @staticmethod
     def extract_date(text: str) -> Optional[str]:
         """
@@ -271,6 +345,38 @@ class ReceiptParser:
             if match is not None:
                 return payment_method_name
         return None
+
+    # Parsing methods --------------------------------------------------------------------------------------------------
+
+    @staticmethod
+    def parse_price(price_str: str) -> Optional[float]:
+        parts = [s.strip() for s in split(r"[,.\s]", price_str)]
+        try:
+            price = float(f'{parts[0]}.{parts[1]}')
+        except ValueError:
+            return None
+        return price
+
+    # TODO: Optimize + potentially fix cleaning string
+    @staticmethod
+    def parse_count(item_str: str):
+        last_five = item_str[-5:]
+
+        # Search for digits
+        match = search(r'\d(?:\s?\d){0,}', last_five)
+
+        if match:
+            matched_fragment = match.group()
+            number = int(matched_fragment.replace(' ', ''))
+
+            # Remove count from the original item string
+            start_index = len(item_str) - 5 + match.start()
+            end_index = len(item_str) - 5 + match.end()
+            cleaned_string = item_str[:start_index] + item_str[end_index:]
+
+            return number, cleaned_string.strip()
+
+        return None, item_str.strip()
 
     @staticmethod
     def parse_date(date_str: str) -> Optional[date]:

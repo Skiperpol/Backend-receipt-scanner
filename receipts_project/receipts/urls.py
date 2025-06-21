@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     TransactionListAPI, TransactionDetailAPI,
     ProductListAPI, ProductDetailAPI,
-    ReceiptScanAPI, UserUpdateAPI, ChangePasswordAPI
+    ReceiptScanAPI, UserUpdateAPI, ChangePasswordAPI, CalendarAPI
 )
 
 urlpatterns = [
@@ -13,4 +13,5 @@ urlpatterns = [
     path("receipts/scan/", ReceiptScanAPI.as_view(), name="receipt-scan"),
     path("auth/user/", UserUpdateAPI.as_view(), name="user-update"),    
     path("auth/password/", ChangePasswordAPI.as_view(), name="change-password"), 
+    path('api/calendar/<str:period>/', CalendarAPI.as_view()),
 ]

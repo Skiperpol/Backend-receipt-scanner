@@ -1,4 +1,5 @@
 from typing import Any
+from django.http import JsonResponse
 from rest_framework.views import APIView
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -10,6 +11,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth.password_validation import validate_password
 from rest_framework.permissions import IsAuthenticated
+from django.db.models.functions import TruncDay, TruncMonth
+from django.db.models import Sum
 
 class UserUpdateAPI(APIView):
     permission_classes = [IsAuthenticated]
@@ -106,3 +109,39 @@ class ProductDetailAPI(APIView):
 class ReceiptScanAPI(APIView):
     def post(self, request: Request) -> Response:
         return Response({"detail": "Not implemented"}, status=status.HTTP_501_NOT_IMPLEMENTED)
+    
+class CalendarAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, period: str):
+        try:
+            year = int(request.query_params.get('year', 0))
+        except ValueError:
+            return JsonResponse({'detail': 'Invalid year'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if period == 'daily':
+            try:
+                month = int(request.query_params.get('month', 0))
+            except ValueError:
+                return JsonResponse({'detail': 'Invalid month'}, status=status.HTTP_400_BAD_REQUEST)
+            qs = Transaction.objects.filter(date__year=year, date__month=month)
+            data = (
+                qs.annotate(day=TruncDay('date'))
+                  .values('day')
+                  .annotate(total=Sum('total_amount'))
+                  .order_by('day')
+            )
+            result = {entry['day'].day: float(entry['total'] or 0) for entry in data}
+        elif period == 'monthly':
+            qs = Transaction.objects.filter(date__year=year)
+            data = (
+                qs.annotate(month=TruncMonth('date'))
+                  .values('month')
+                  .annotate(total=Sum('total_amount'))
+                  .order_by('month')
+            )
+            result = {entry['month'].month: float(entry['total'] or 0) for entry in data}
+        else:
+            return JsonResponse({'detail': 'Unsupported period'}, status=status.HTTP_400_BAD_REQUEST)
+
+        return JsonResponse(result, safe=True)

@@ -249,6 +249,23 @@ class ReceiptParser:
         :param estimation_threshold: threshold for count estimation (in case of fail count is set to None)
         """
 
+        def __replace_characters(text: str) -> str:
+            char_to_digit = {
+                'O': '0',
+                'I': '1', 'L': '1', '|': '1',
+                'Z': '2',
+                'E': '3',
+                'A': '4',
+                'S': '5',
+                '/': '7',
+                'B': '8',
+            }
+
+            return ''.join(char_to_digit.get(c.upper(), c) for c in text)
+
+        # Prepare items_section
+        normalized_items_section = __replace_characters(items_section)
+
         # Items list
         # Structure: name, price, count
         items = []
@@ -263,7 +280,7 @@ class ReceiptParser:
             #   opcjonalna litera i cyfry (np. A / 4 / A5)
         )
 
-        matches = pattern.finditer(items_section)
+        matches = pattern.finditer(normalized_items_section)
         idx_current = 0
 
         for match in matches:

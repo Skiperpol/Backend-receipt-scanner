@@ -10,7 +10,7 @@ from easyocr import Reader
 
 import cv2
 
-
+# TODO: Add type annotations
 class ReceiptParser:
 
     supported_payment_methods = {
@@ -20,7 +20,7 @@ class ReceiptParser:
 
     def __init__(self):
         # Settings
-        self.threshold = 75
+        self.threshold = 75 # Global threshold
 
         self.image = None
 
@@ -53,7 +53,7 @@ class ReceiptParser:
             image = image_input
         else:
             raise TypeError("Unsupported image input type")
-        
+
         self.image = image
 
     def extract_text(self):
@@ -106,7 +106,7 @@ class ReceiptParser:
         summary_match = None
 
         for match in summary_matches:
-            summary_match = self.fuzzy_find_substring(text_lower[idx_title_end:], pattern=match, threshold=self.threshold)
+            summary_match = self.fuzzy_find_substring(text_lower[idx_title_end:], pattern=match, threshold=85)
             if summary_match:
                 break
 
@@ -209,6 +209,7 @@ class ReceiptParser:
 
     # Static methods used for various data conversions or extractions --------------------------------------------------
 
+    # TODO: Add variable offset
     @staticmethod
     def fuzzy_find_substring(text: str, pattern: str, threshold: int = 85, ignore_case: bool = True) -> Optional[
         tuple[int, int]]:
@@ -237,8 +238,8 @@ class ReceiptParser:
         return best_match
 
     # TODO: Add items count verification
-    # TODO: Add another approach if items could not be parsed correctly
-    # TODO: Optimize
+    # TODO: Code cleanup
+    # TODO: Add discounts recognition
     @staticmethod
     def extract_items(items_section: str, verify_items_count: bool = False, estimate_items_count: bool = True, estimation_threshold: float = 0.05):
         """
@@ -251,7 +252,7 @@ class ReceiptParser:
 
         def __replace_characters(text: str) -> str:
             char_to_digit = {
-                'O': '0',
+                'O': '0', 'Q': '0',
                 'I': '1', 'L': '1', '|': '1',
                 'Z': '2',
                 'E': '3',
@@ -380,22 +381,23 @@ class ReceiptParser:
             return None
         return price
 
-    # TODO: Optimize + potentially fix cleaning string
     @staticmethod
     def parse_count(item_str: str):
-        last_five = item_str[-5:]
+
+        last_characters_search_count = 5 # Usually the count can be found near the end of a product's name, ex. MASŁO 10szt, CHLEB * 2
+
+        last_characters = item_str[-last_characters_search_count:]
 
         # Search for digits
-        match = search(r'\d(?:\s?\d){0,}', last_five)
+        match = search(r'\d(?:\s?\d){0,}', last_characters)
 
         if match:
             matched_fragment = match.group()
             number = int(matched_fragment.replace(' ', ''))
 
-            # Remove count from the original item string
-            start_index = len(item_str) - 5 + match.start()
-            end_index = len(item_str) - 5 + match.end()
-            cleaned_string = item_str[:start_index] + item_str[end_index:]
+            # Remove count from the original item string and leave only the name of a product
+            start_index = len(item_str) - last_characters_search_count + match.start()
+            cleaned_string = item_str[:start_index]
 
             return number, cleaned_string.strip()
 
@@ -416,6 +418,7 @@ class ReceiptParser:
                 continue
         return None
 
+    # TODO: Improve time parsing (add different separators, add a verification and constraints (0 <= HH <= 24, 0 <= MM <= 59)
     @staticmethod
     def parse_time(time_str: str) -> Optional[time]:
         """
@@ -454,3 +457,18 @@ Examples:
     parser.run()
 
 """
+
+if __name__ == '__main__':
+    parser = ReceiptParser()
+    image_path = Path(r'C:\Users\Maciej\PycharmProjects\Receipt OCR project\receipts\20250620_135234.jpg')
+    parser.load_image_from_path(image_path)
+    parser.extract_text()
+    sections = parser.split_receipt_sections()
+    parser.extract_data_from_sections()
+    result = parser.to_json()
+
+    for key, value in sections.items():
+        print(f'\n==={key}===')
+        print(value)
+
+    parser.save_to_json_file('receipt.json')

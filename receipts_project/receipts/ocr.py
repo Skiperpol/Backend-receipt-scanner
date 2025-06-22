@@ -11,6 +11,7 @@ from easyocr import Reader
 import cv2
 
 # TODO: Add type annotations
+# TODO: Optimize parsing (to do it faster)
 class ReceiptParser:
 
     supported_payment_methods = {
@@ -18,7 +19,12 @@ class ReceiptParser:
         'Gotówka': 'CASH'
     }
 
+    suported_discount_patterns = [
+        'Rabat', 'Zniżka', 'Opust'
+    ]
+
     def __init__(self, gpu: bool = True):
+
         # Settings
         self.threshold = 75 # Global threshold
         self.gpu = gpu
@@ -34,6 +40,7 @@ class ReceiptParser:
         self.total = None
         self.payment_method = None
         self.items = None
+        self.discounts = None
 
         self.reader = Reader(lang_list=['pl', 'en'], gpu=self.gpu)
 
@@ -143,10 +150,17 @@ class ReceiptParser:
         tail_text = text[idx_summary_end:]
         identifier_match = search(r"\b(?!nip)[A-Z]{3}[\s()\\.,;'\-/\[\]]*\d{10}\b", tail_text, flags=IGNORECASE)
 
+        # ------------------------------------------------------------
         if not identifier_match:
             raise ValueError("Couldn't find the receipt identifier")
 
         idx_identifier_end = idx_summary_end + identifier_match.end()
+        # CHANGE THIS TO (Ctrl + /): ---------------------------------
+        # if identifier_match:
+        #     idx_identifier_end = idx_summary_end + identifier_match.end()
+        # else:
+        #     idx_identifier_end = idx_summary_end
+        # IF IDENTIFIER SHOULD BE IGNORED ----------------------------
 
         # Create dictionary to return
         self.sections['header'] = text[:idx_title_start].strip()
@@ -173,7 +187,7 @@ class ReceiptParser:
         self.payment_method = self.extract_payment_method(self.sections['identifier']) or self.extract_payment_method(self.sections['footer'])
 
         # Items can be found in the items section (well who would have expected)
-        self.items = self.extract_items(self.sections['items'])
+        self.items, self.discounts = self.extract_items(self.sections['items'])
 
 
     def to_json(self):
@@ -182,7 +196,8 @@ class ReceiptParser:
             "time": None if self.time is None else self.time.strftime("%H:%M:%S"),
             "total": self.total,
             "payment_method": self.payment_method,
-            "items": self.items
+            "items": self.items,
+            "discounts": self.discounts
         }
 
     def save_to_json_file(self, filepath):
@@ -234,21 +249,18 @@ class ReceiptParser:
 
         return best_match
 
-    # TODO: Add items count verification
     # TODO: Code cleanup
-    # TODO: Add discounts recognition
     @staticmethod
-    def extract_items(items_section: str, verify_items_count: bool = False, estimate_items_count: bool = True, estimation_threshold: float = 0.05):
+    def extract_items(items_section: str, estimate_items_count: bool = True, estimation_threshold: float = 0.05):
         """
-        WIP
+        Attempt to extract items from text
         :param items_section: items section
-        :param verify_items_count: whether to verify items count (WIP)
         :param estimate_items_count: whether to estimate items count based on total amount and price of an item
-        :param estimation_threshold: threshold for count estimation (in case of fail count is set to None)
+        :param estimation_threshold: threshold for count estimation (if estimation failed count is set to 1)
         """
 
         # Try to replace some characters before parsing for better results
-        def __replace_characters(text: str) -> str:
+        def _replace_characters(text: str) -> str:
             char_to_digit = {
                 'O': '0', 'Q': '0',
                 'I': '1', 'L': '1', '|': '1',
@@ -256,14 +268,23 @@ class ReceiptParser:
                 'E': '3',
                 'A': '4',
                 'S': '5',
+                # 'G': '6',
                 '/': '7',
                 'B': '8',
             }
-
             return ''.join(char_to_digit.get(c.upper(), c) for c in text)
 
+        # Helper to add discount
+        def _append_discount(name: str, amount: Optional[float]):
+            if amount is not None:
+                amount = abs(amount)
+            discounts.append({
+                'name': name,
+                'amount': amount
+            })
+
         # Prepare items_section
-        normalized_items_section = __replace_characters(items_section)
+        normalized_items_section = _replace_characters(items_section)
 
         # Items list
         # Structure:
@@ -273,39 +294,82 @@ class ReceiptParser:
         #   "count_estimated": is item count estimated
         items = []
 
+        # Discounts list
+        # Structure:
+        #   'name': discount name (ex. Rabat, Zniżka),
+        #   'amount': discount amount
+        discounts = []
+
         pattern = compile(
-            r"""[*x]?\s* (\d+\s*[.,\s]\s*\d{2}) \s*[=/\\]?\s* (\d+\s*[.,\s]\s*\d{2}) \s*[A-Za-z]?\d*""", VERBOSE
-            # Pattern explanation:
-            #   optional * lub x (count indication)
-            #   first price (item) (np. 59,99 / 59 99 / 59.99)
-            #   separator: ' ' = / \
-            #   second price (total)
-            #   optional letters (tax rate) (np. A / 4 / A5)
+            r"""[*x]?\s* (\d+\s*[.,\s]\s*\d{2}) \s*[=/\\]?\s* ([~-]?\s*\d+\s*[.,\s]\s*\d{2}) \s*[A-Za-z]?\d*""", VERBOSE
         )
 
         matches = pattern.finditer(normalized_items_section)
         idx_current = 0
 
+        # Main 'for' loop - parsing found items
         for match in matches:
-            # print(f'{match} | {match.group(1)} | {match.group(2)} | {match.start()} | {match.end()}')
-
             item_raw = items_section[idx_current:match.start()]
+            normalized_item_raw = normalized_items_section[idx_current:match.start()]
             price_raw = match.group(1)
             total_raw = match.group(2)
 
-            count, item_raw = ReceiptParser.parse_count(item_raw)  # Get count and trim item if necessary
             price = ReceiptParser.parse_price(price_raw)
             total = ReceiptParser.parse_price(total_raw)
 
-            # Try to calculate the count based on extracted price and total (if count couldn't be parsed)
+            is_item_actually_discount = False
+
+            # Check for discounts - approach 1: try to find keywords
+            for discount_pattern in ReceiptParser.suported_discount_patterns:
+                discount_match = ReceiptParser.fuzzy_find_substring(item_raw, pattern=discount_pattern, threshold=65)
+
+                if discount_match:
+                    # print(f'Discount pattern: {discount_pattern}, found: {item_raw[discount_match[0]:discount_match[1]]}')
+                    # Potential discount found (keyword match successful)
+                    search_start = discount_match[1]
+                    discount_amount_match = search(r'([~-]?\s*\d+\s*[.,\s]\s*\d{2})', item_raw[search_start:])
+
+                    if discount_amount_match:
+                        # This item is probably a combination of a normal product and a discount. Extract discount from it and parse product as usual
+                        start = discount_match[0]
+                        end = search_start + discount_amount_match.end()
+
+                        discount_name = item_raw[start:search_start + discount_amount_match.start()]
+                        discount_amount = ReceiptParser.parse_price(discount_amount_match.group(1))
+                        item_raw = item_raw[:start] + item_raw[end:]  # Exclude found discount from item name
+                        # print(f'Found discount (combination): {discount_name} ({discount_amount})')
+                        _append_discount(discount_name, discount_amount)
+                    else:
+                        # This whole item is probably a discount. Do not add it to the items list
+                        is_item_actually_discount = True
+                        # print(f'Found discount (single): {item_raw} ({price})')
+                        _append_discount(item_raw, price)
+
+            # Check for discounts - approach 2: try to find negative total
+            if not is_item_actually_discount and total is not None and total < 0:
+                is_item_actually_discount = True
+                # print(f'Found discount (negative price): {item_raw} ({price})')
+                _append_discount(item_raw, price)
+
+            # If the current item is in fact a discount do not add it to the items list and skip the rest of this main 'for' loop
+            if is_item_actually_discount:
+                idx_current = match.end()
+                continue
+
+            # Try to extract count from text
+            count, item_raw = ReceiptParser.parse_count(item_raw)  # Get count and trim item if necessary
             is_count_estimated = False
 
-            if estimate_items_count and not count:
-                count_estimation = total / price # type: ignore
+            # Try to calculate the count based on extracted price and total (if count couldn't be parsed)
+            if total is not None and price is not None and estimate_items_count and not count:
+                count_estimation = total / price  # type: ignore
+                is_count_estimated = True
 
-                if abs(count_estimation - round(count_estimation)) <= estimation_threshold:
+                if abs(count_estimation - round(count_estimation)) <= estimation_threshold and int(
+                        count_estimation) > 0:
                     count = int(count_estimation)
-                    is_count_estimated = True
+                else:
+                    count = 1  # Default count = 1
 
             # Create a dictionary
             items.append({
@@ -317,14 +381,7 @@ class ReceiptParser:
 
             idx_current = match.end()
 
-        # if verify_items_count:
-        #     comma_count = items_section.count(',')
-        #     if comma_count % 2 != 0:
-        #         raise AssertionError(f'Invalid comma count {comma_count}. Expected even number (2 commas for each product).')
-        #     if comma_count != len(items) * 2:
-        #         raise AssertionError(f'Invalid number of products. Got: {len(items)}, expected: {int(comma_count / 2)}')
-
-        return items
+        return items, discounts
 
     @staticmethod
     def extract_date(text: str) -> Optional[str]:
@@ -347,14 +404,33 @@ class ReceiptParser:
     @staticmethod
     def extract_time(text: str) -> Optional[str]:
         """
-        Attempt to extract time from text
+        Attempt to extract valid time from text.
+        Accepts separators: :, ., ;
         :param text: search section
-        :return: HH:MM string or None
+        :return: first valid time in HH:MM format or None
         """
+
         match = search(r'\d{2}:\d{2}(?::\d{2})?\b', text)
         if match:
             # Return hours and minutes
             return match.group()[:5]
+
+        # If time could not be found, try again with less restrict constraints
+
+        # Valid formats: 12:34, 12.34, 12;34 with optional seconds
+        pattern = compile(r'(\d{1,2})[.,:;](\d{2})(?:[:.;]\d{2})?\b')
+
+        for match in pattern.finditer(text):
+            hours, minutes = match.group(1), match.group(2)
+
+            try:
+                h = int(hours)
+                m = int(minutes)
+                if 0 <= h <= 24 and 0 <= m <= 59: # Only return valid time (somewhat prevents reading prices as time)
+                    return f"{h:02d}:{m:02d}"
+            except ValueError:
+                continue
+
         return None
 
     @staticmethod
@@ -375,12 +451,23 @@ class ReceiptParser:
 
     @staticmethod
     def parse_price(price_str: str) -> Optional[float]:
-        parts = [s.strip() for s in split(r"[,.\s]", price_str)]
+
+        parts = [s.strip() for s in split(r"[,.\s]+", price_str)]
+
+        if len(parts) != 2:
+            return None
+
+        # Check sign
+        negative = parts[0].startswith(('-', '~'))
+        integer_part = parts[0].lstrip('-~')
+
         try:
-            price = float(f'{parts[0]}.{parts[1]}')
+            price = float(f'{integer_part}.{parts[1]}')
+            if negative:
+                price = -price
+            return price
         except ValueError:
             return None
-        return price
 
     @staticmethod
     def parse_count(item_str: str):
@@ -419,21 +506,17 @@ class ReceiptParser:
                 continue
         return None
 
-    # TODO: Improve time parsing (add different separators, add a verification and constraints (0 <= HH <= 24, 0 <= MM <= 59)
     @staticmethod
     def parse_time(time_str: str) -> Optional[time]:
         """
-        Attempt to parse time from a string
+        Attempt to parse time (HH:MM) from a string
         :param time_str: string representation of time
         :return: datetime.time or None
         """
         try:
             return datetime.strptime(time_str, "%H:%M").time()
         except ValueError:
-            try:
-                return datetime.strptime(time_str, "%H:%M:%S").time()
-            except ValueError:
-                return None
+            return None
 
 # ----------------------------------------------------------------------------------------------------------------------
 

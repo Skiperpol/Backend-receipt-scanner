@@ -140,8 +140,6 @@ class ReceiptParser:
 
         idx_summary_end += amount_match.end()
 
-        # r"\b\d{40}\b.*?\b[A-Z]{3}\d{10}\b
-        # r"\b(?!NIP)[A-Z]{3}\s*\d{10}\b"
         # Section 4 (identifier) – 40 digits code + fiscal logo + identifier: 3 letters + 10 digits
         tail_text = text[idx_summary_end:]
         identifier_match = search(r"\b(?!nip)[A-Z]{3}[\s()\\.,;'\-/\[\]]*\d{10}\b", tail_text, flags=IGNORECASE)
@@ -250,6 +248,7 @@ class ReceiptParser:
         :param estimation_threshold: threshold for count estimation (in case of fail count is set to None)
         """
 
+        # Try to replace some characters before parsing for better results
         def __replace_characters(text: str) -> str:
             char_to_digit = {
                 'O': '0', 'Q': '0',
@@ -268,17 +267,21 @@ class ReceiptParser:
         normalized_items_section = __replace_characters(items_section)
 
         # Items list
-        # Structure: name, price, count
+        # Structure:
+        #   "name": item name,
+        #   "price": item price,
+        #   "count": item count,
+        #   "count_estimated": is item count estimated
         items = []
 
         pattern = compile(
             r"""[*x]?\s* (\d+\s*[.,\s]\s*\d{2}) \s*[=/\\]?\s* (\d+\s*[.,\s]\s*\d{2}) \s*[A-Za-z]?\d*""", VERBOSE
             # Pattern explanation:
-            #   opcjonalnie * lub x, potem spacje
-            #   pierwsza cena (np. 59,99 / 59 99 / 59.99)
-            #   separator: spacje, = / \
-            #   druga cena (jak wyżej)
-            #   opcjonalna litera i cyfry (np. A / 4 / A5)
+            #   optional * lub x (count indication)
+            #   first price (item) (np. 59,99 / 59 99 / 59.99)
+            #   separator: ' ' = / \
+            #   second price (total)
+            #   optional letters (tax rate) (np. A / 4 / A5)
         )
 
         matches = pattern.finditer(normalized_items_section)
@@ -315,7 +318,6 @@ class ReceiptParser:
 
             idx_current = match.end()
 
-        # TODO
         # if verify_items_count:
         #     comma_count = items_section.count(',')
         #     if comma_count % 2 != 0:
@@ -457,18 +459,3 @@ Examples:
     parser.run()
 
 """
-
-if __name__ == '__main__':
-    parser = ReceiptParser()
-    image_path = Path(r'C:\Users\Maciej\PycharmProjects\Receipt OCR project\receipts\20250620_135234.jpg')
-    parser.load_image_from_path(image_path)
-    parser.extract_text()
-    sections = parser.split_receipt_sections()
-    parser.extract_data_from_sections()
-    result = parser.to_json()
-
-    for key, value in sections.items():
-        print(f'\n==={key}===')
-        print(value)
-
-    parser.save_to_json_file('receipt.json')

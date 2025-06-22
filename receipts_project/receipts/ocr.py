@@ -10,7 +10,7 @@ from easyocr import Reader
 
 import cv2
 
-
+# TODO: Add type annotations
 class ReceiptParser:
 
     supported_payment_methods = {
@@ -20,7 +20,7 @@ class ReceiptParser:
 
     def __init__(self):
         # Settings
-        self.threshold = 75
+        self.threshold = 75 # Global threshold
 
         self.image = None
 
@@ -42,12 +42,18 @@ class ReceiptParser:
         self.__load_image(image_path.as_posix())
 
     def load_image_from_np_ndarray(self, np_ndarray: ndarray):
-        if not np_ndarray:
+        if np_ndarray is None or np_ndarray.size == 0:
             raise ValueError('Invalid numpy array')
         self.__load_image(np_ndarray)
 
     def __load_image(self, image_input):
-        image = cv2.imread(image_input)
+        if isinstance(image_input, str):
+            image = cv2.imread(image_input)
+        elif isinstance(image_input, ndarray):
+            image = image_input
+        else:
+            raise TypeError("Unsupported image input type")
+
         self.image = image
 
     def extract_text(self):
@@ -72,7 +78,7 @@ class ReceiptParser:
             # <currently no parameters>
         )
 
-        self.raw_output = [line.strip() for line in result if line.strip()]
+        self.raw_output = [line.strip() for line in result if line.strip()] # type: ignore
 
         return self.raw_output
 
@@ -100,7 +106,7 @@ class ReceiptParser:
         summary_match = None
 
         for match in summary_matches:
-            summary_match = self.fuzzy_find_substring(text_lower[idx_title_end:], pattern=match, threshold=self.threshold)
+            summary_match = self.fuzzy_find_substring(text_lower[idx_title_end:], pattern=match, threshold=85)
             if summary_match:
                 break
 
@@ -115,7 +121,7 @@ class ReceiptParser:
         if not match:
             raise ValueError("Couldn't find keyword: 'SUMA PLN'")
 
-        _, idx_summary_end = total_match
+        _, idx_summary_end = total_match # type: ignore
         idx_summary_end += idx_summary_start
 
         # Convert next digits to total
@@ -134,8 +140,6 @@ class ReceiptParser:
 
         idx_summary_end += amount_match.end()
 
-        # r"\b\d{40}\b.*?\b[A-Z]{3}\d{10}\b
-        # r"\b(?!NIP)[A-Z]{3}\s*\d{10}\b"
         # Section 4 (identifier) – 40 digits code + fiscal logo + identifier: 3 letters + 10 digits
         tail_text = text[idx_summary_end:]
         identifier_match = search(r"\b(?!nip)[A-Z]{3}[\s()\\.,;'\-/\[\]]*\d{10}\b", tail_text, flags=IGNORECASE)
@@ -203,6 +207,7 @@ class ReceiptParser:
 
     # Static methods used for various data conversions or extractions --------------------------------------------------
 
+    # TODO: Add variable offset
     @staticmethod
     def fuzzy_find_substring(text: str, pattern: str, threshold: int = 85, ignore_case: bool = True) -> Optional[
         tuple[int, int]]:
@@ -231,8 +236,8 @@ class ReceiptParser:
         return best_match
 
     # TODO: Add items count verification
-    # TODO: Add another approach if items could not be parsed correctly
-    # TODO: Optimize
+    # TODO: Code cleanup
+    # TODO: Add discounts recognition
     @staticmethod
     def extract_items(items_section: str, verify_items_count: bool = False, estimate_items_count: bool = True, estimation_threshold: float = 0.05):
         """
@@ -243,21 +248,43 @@ class ReceiptParser:
         :param estimation_threshold: threshold for count estimation (in case of fail count is set to None)
         """
 
+        # Try to replace some characters before parsing for better results
+        def __replace_characters(text: str) -> str:
+            char_to_digit = {
+                'O': '0', 'Q': '0',
+                'I': '1', 'L': '1', '|': '1',
+                'Z': '2',
+                'E': '3',
+                'A': '4',
+                'S': '5',
+                '/': '7',
+                'B': '8',
+            }
+
+            return ''.join(char_to_digit.get(c.upper(), c) for c in text)
+
+        # Prepare items_section
+        normalized_items_section = __replace_characters(items_section)
+
         # Items list
-        # Structure: name, price, count
+        # Structure:
+        #   "name": item name,
+        #   "price": item price,
+        #   "count": item count,
+        #   "count_estimated": is item count estimated
         items = []
 
         pattern = compile(
             r"""[*x]?\s* (\d+\s*[.,\s]\s*\d{2}) \s*[=/\\]?\s* (\d+\s*[.,\s]\s*\d{2}) \s*[A-Za-z]?\d*""", VERBOSE
             # Pattern explanation:
-            #   opcjonalnie * lub x, potem spacje
-            #   pierwsza cena (np. 59,99 / 59 99 / 59.99)
-            #   separator: spacje, = / \
-            #   druga cena (jak wyżej)
-            #   opcjonalna litera i cyfry (np. A / 4 / A5)
+            #   optional * lub x (count indication)
+            #   first price (item) (np. 59,99 / 59 99 / 59.99)
+            #   separator: ' ' = / \
+            #   second price (total)
+            #   optional letters (tax rate) (np. A / 4 / A5)
         )
 
-        matches = pattern.finditer(items_section)
+        matches = pattern.finditer(normalized_items_section)
         idx_current = 0
 
         for match in matches:
@@ -275,7 +302,7 @@ class ReceiptParser:
             is_count_estimated = False
 
             if estimate_items_count and not count:
-                count_estimation = total / price
+                count_estimation = total / price # type: ignore
 
                 if abs(count_estimation - round(count_estimation)) <= estimation_threshold:
                     count = int(count_estimation)
@@ -291,7 +318,6 @@ class ReceiptParser:
 
             idx_current = match.end()
 
-        # TODO
         # if verify_items_count:
         #     comma_count = items_section.count(',')
         #     if comma_count % 2 != 0:
@@ -357,22 +383,23 @@ class ReceiptParser:
             return None
         return price
 
-    # TODO: Optimize + potentially fix cleaning string
     @staticmethod
     def parse_count(item_str: str):
-        last_five = item_str[-5:]
+
+        last_characters_search_count = 5 # Usually the count can be found near the end of a product's name, ex. MASŁO 10szt, CHLEB * 2
+
+        last_characters = item_str[-last_characters_search_count:]
 
         # Search for digits
-        match = search(r'\d(?:\s?\d){0,}', last_five)
+        match = search(r'\d(?:\s?\d){0,}', last_characters)
 
         if match:
             matched_fragment = match.group()
             number = int(matched_fragment.replace(' ', ''))
 
-            # Remove count from the original item string
-            start_index = len(item_str) - 5 + match.start()
-            end_index = len(item_str) - 5 + match.end()
-            cleaned_string = item_str[:start_index] + item_str[end_index:]
+            # Remove count from the original item string and leave only the name of a product
+            start_index = len(item_str) - last_characters_search_count + match.start()
+            cleaned_string = item_str[:start_index]
 
             return number, cleaned_string.strip()
 
@@ -393,6 +420,7 @@ class ReceiptParser:
                 continue
         return None
 
+    # TODO: Improve time parsing (add different separators, add a verification and constraints (0 <= HH <= 24, 0 <= MM <= 59)
     @staticmethod
     def parse_time(time_str: str) -> Optional[time]:
         """

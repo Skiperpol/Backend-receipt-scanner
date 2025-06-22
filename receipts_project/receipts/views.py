@@ -1,4 +1,4 @@
-from typing import Any
+from django.http import JsonResponse
 from rest_framework.views import APIView
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -6,10 +6,13 @@ from rest_framework import status
 from .models import Transaction, Product
 from .serializers import TransactionSerializer, ProductSerializer
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework import status
 from django.contrib.auth.password_validation import validate_password
-from rest_framework.permissions import IsAuthenticated
+from django.db.models.functions import TruncDay, TruncMonth
+from django.db.models import Sum
+from .ocr import ReceiptParser
+from rest_framework.parsers import MultiPartParser, FormParser
+import numpy as np
+import cv2
 
 class UserUpdateAPI(APIView):
     permission_classes = [IsAuthenticated]
@@ -104,5 +107,69 @@ class ProductDetailAPI(APIView):
 
 
 class ReceiptScanAPI(APIView):
-    def post(self, request: Request) -> Response:
-        return Response({"detail": "Not implemented"}, status=status.HTTP_501_NOT_IMPLEMENTED)
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, *args, **kwargs):
+        image_file = request.FILES.get('image')
+        if not image_file:
+            return Response(
+                {"detail": "Brak pliku 'image' w żądaniu"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        file_bytes = image_file.read()
+        np_arr = np.frombuffer(file_bytes, np.uint8)
+        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        if img is None:
+            return Response(
+                {"detail": "Nie udało się zdekodować obrazu"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        parser = ReceiptParser()
+        try:
+            parser.load_image_from_np_ndarray(img)
+            parser.run()
+        except Exception as e:
+            return Response(
+                {"detail": f"Błąd parsowania: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        return Response(parser.to_json(), status=status.HTTP_200_OK)
+    
+class CalendarAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, period: str):
+        try:
+            year = int(request.query_params.get('year', 0))
+        except ValueError:
+            return JsonResponse({'detail': 'Invalid year'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if period == 'daily':
+            try:
+                month = int(request.query_params.get('month', 0))
+            except ValueError:
+                return JsonResponse({'detail': 'Invalid month'}, status=status.HTTP_400_BAD_REQUEST)
+            qs = Transaction.objects.filter(date__year=year, date__month=month)
+            data = (
+                qs.annotate(day=TruncDay('date'))
+                  .values('day')
+                  .annotate(total=Sum('total_amount'))
+                  .order_by('day')
+            )
+            result = {entry['day'].day: float(entry['total'] or 0) for entry in data}
+        elif period == 'monthly':
+            qs = Transaction.objects.filter(date__year=year)
+            data = (
+                qs.annotate(month=TruncMonth('date'))
+                  .values('month')
+                  .annotate(total=Sum('total_amount'))
+                  .order_by('month')
+            )
+            result = {entry['month'].month: float(entry['total'] or 0) for entry in data}
+        else:
+            return JsonResponse({'detail': 'Unsupported period'}, status=status.HTTP_400_BAD_REQUEST)
+
+        return JsonResponse(result, safe=True)

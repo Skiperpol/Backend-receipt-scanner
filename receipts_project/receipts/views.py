@@ -13,6 +13,7 @@ from .ocr import ReceiptParser
 from rest_framework.parsers import MultiPartParser, FormParser
 import numpy as np
 import cv2
+import traceback
 
 class UserUpdateAPI(APIView):
     permission_classes = [IsAuthenticated]
@@ -49,6 +50,7 @@ class TransactionListAPI(APIView):
         return Response(serializer.data)
 
     def post(self, request: Request) -> Response:
+        print("request.data:", request.data)
         serializer = TransactionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -130,13 +132,29 @@ class ReceiptScanAPI(APIView):
         try:
             parser.load_image_from_np_ndarray(img)
             parser.run()
+        except ValueError as ve:
+            print("ValueError:", ve)
+            traceback.print_exc()
+            return Response(
+                {"detail": f"Błąd danych: {str(ve)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
+            print("Inny błąd:", e)
+            traceback.print_exc()
             return Response(
                 {"detail": f"Błąd parsowania: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+        parsed = parser.to_json()
 
-        return Response(parser.to_json(), status=status.HTTP_200_OK)
+        if 'total' in parsed:
+            parsed['total'] = -abs(parsed['total'])
+
+        for item in parsed.get('items', []):
+            item['price'] = -abs(item.get('price', 0))
+
+        return Response(parsed, status=status.HTTP_200_OK)
     
 class CalendarAPI(APIView):
     permission_classes = [IsAuthenticated]

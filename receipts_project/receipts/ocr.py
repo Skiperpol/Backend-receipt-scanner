@@ -23,10 +23,11 @@ class ReceiptParser:
         'Rabat', 'Zniżka', 'Opust'
     ]
 
-    def __init__(self):
+    def __init__(self, gpu: bool = True):
+
         # Settings
         self.threshold = 75 # Global threshold
-
+        self.gpu = gpu
         self.image = None
 
         # Extracted text
@@ -40,6 +41,8 @@ class ReceiptParser:
         self.payment_method = None
         self.items = None
         self.discounts = None
+
+        self.reader = Reader(lang_list=['pl', 'en'], gpu=self.gpu)
 
     def load_image_from_path(self, image_path: Path):
         # Check whether provided path is correct
@@ -72,16 +75,13 @@ class ReceiptParser:
             raise ValueError(f'Image not loaded. Use load_image_from_XXX to load an image of a receipt first')
 
         # Process image
-        reader = Reader(lang_list=['pl', 'en'], gpu=False)
-        result = reader.readtext(
-            # General
-            self.image, detail=0, paragraph=True,
-            # Contrast
-            contrast_ths=0.3, adjust_contrast=0.5,
-            # Text Detection
+        result = self.reader.readtext(
+            self.image,
+            detail=0,
+            paragraph=True,
+            contrast_ths=0.3,
+            adjust_contrast=0.5,
             canvas_size=5000
-            # Bounding Box Merging
-            # <currently no parameters>
         )
 
         self.raw_output = [line.strip() for line in result if line.strip()] # type: ignore

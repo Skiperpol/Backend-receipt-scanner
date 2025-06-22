@@ -11,6 +11,7 @@ from easyocr import Reader
 import cv2
 
 # TODO: Add type annotations
+# TODO: Optimize parsing (to do it faster)
 class ReceiptParser:
 
     supported_payment_methods = {
@@ -241,11 +242,11 @@ class ReceiptParser:
     @staticmethod
     def extract_items(items_section: str, verify_items_count: bool = False, estimate_items_count: bool = True, estimation_threshold: float = 0.05):
         """
-        WIP
+        Attempt to extract items from text
         :param items_section: items section
         :param verify_items_count: whether to verify items count (WIP)
         :param estimate_items_count: whether to estimate items count based on total amount and price of an item
-        :param estimation_threshold: threshold for count estimation (in case of fail count is set to None)
+        :param estimation_threshold: threshold for count estimation (if estimation failed count is set to 1)
         """
 
         # Try to replace some characters before parsing for better results
@@ -257,6 +258,7 @@ class ReceiptParser:
                 'E': '3',
                 'A': '4',
                 'S': '5',
+                'G': '6',
                 '/': '7',
                 'B': '8',
             }
@@ -303,10 +305,12 @@ class ReceiptParser:
 
             if estimate_items_count and not count:
                 count_estimation = total / price # type: ignore
+                is_count_estimated = True
 
                 if abs(count_estimation - round(count_estimation)) <= estimation_threshold:
                     count = int(count_estimation)
-                    is_count_estimated = True
+                else:
+                    count = 1 # Default count = 1
 
             # Create a dictionary
             items.append({
@@ -348,14 +352,33 @@ class ReceiptParser:
     @staticmethod
     def extract_time(text: str) -> Optional[str]:
         """
-        Attempt to extract time from text
+        Attempt to extract valid time from text.
+        Accepts separators: :, ., ;
         :param text: search section
-        :return: HH:MM string or None
+        :return: first valid time in HH:MM format or None
         """
+
         match = search(r'\d{2}:\d{2}(?::\d{2})?\b', text)
         if match:
             # Return hours and minutes
             return match.group()[:5]
+
+        # If time could not be found, try again with less restrict constraints
+
+        # Valid formats: 12:34, 12.34, 12;34 with optional seconds
+        pattern = compile(r'(\d{1,2})[.:;](\d{2})(?:[:.;]\d{2})?\b')
+
+        for match in pattern.finditer(text):
+            hours, minutes = match.group(1), match.group(2)
+
+            try:
+                h = int(hours)
+                m = int(minutes)
+                if 0 <= h <= 24 and 0 <= m <= 59: # Only return valid time (somewhat prevents reading prices as time)
+                    return f"{h:02d}:{m:02d}"
+            except ValueError:
+                continue
+
         return None
 
     @staticmethod
@@ -420,21 +443,17 @@ class ReceiptParser:
                 continue
         return None
 
-    # TODO: Improve time parsing (add different separators, add a verification and constraints (0 <= HH <= 24, 0 <= MM <= 59)
     @staticmethod
     def parse_time(time_str: str) -> Optional[time]:
         """
-        Attempt to parse time from a string
+        Attempt to parse time (HH:MM) from a string
         :param time_str: string representation of time
         :return: datetime.time or None
         """
         try:
             return datetime.strptime(time_str, "%H:%M").time()
         except ValueError:
-            try:
-                return datetime.strptime(time_str, "%H:%M:%S").time()
-            except ValueError:
-                return None
+            return None
 
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -459,3 +478,18 @@ Examples:
     parser.run()
 
 """
+
+if __name__ == '__main__':
+    parser = ReceiptParser()
+    image_path = Path(r'C:\Users\Maciej\PycharmProjects\Receipt OCR project\receipts\20250620_135234.jpg')
+    parser.load_image_from_path(image_path)
+    parser.extract_text()
+    sections = parser.split_receipt_sections()
+    parser.extract_data_from_sections()
+    result = parser.to_json()
+
+    for key, value in sections.items():
+        print(f'\n==={key}===')
+        print(value)
+
+    print(result)

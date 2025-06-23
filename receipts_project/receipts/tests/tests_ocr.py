@@ -2,7 +2,7 @@ import pytest
 
 from datetime import date, time
 
-from source.receipt_parser import ReceiptParser
+from receipts.ocr import ReceiptParser
 
 
 class TestReceiptParser:
@@ -72,3 +72,53 @@ class TestReceiptParser:
         assert match is not None
         start, end = match
         assert "paragon fiskalny" in text[start:end].lower()
+
+    def test_extract_items_basic(self):
+        # Synthetic output
+        test_text = """
+        SVETER 1*79,9o /9,90 A
+        TORBA 2szt x5,99 = 11,98 A
+        """
+        items, discounts = ReceiptParser.extract_items(test_text)
+
+        assert len(items) == 2
+
+        assert items[0]["name"].lower().startswith("sveter")
+        assert items[0]["price"] == 79.90
+        assert items[0]["count"] == 1
+        assert not items[0]["count_estimated"]
+
+        assert items[1]["name"].lower().startswith("torba")
+        assert items[1]["price"] == 5.99
+        assert items[1]["count"] == 2
+        assert not items[1]["count_estimated"]
+
+        assert discounts == []
+
+    def test_split_receipt_sections_simple(self):
+        parser = ReceiptParser(gpu=False)
+
+        # Synthetic output
+        parser.raw_output = [
+            "SKLEP ABC",
+            "ul. Przykładowa 1",
+            "PARAGON FISKALNY",
+            "SVETER 1*79,90= 79,90 A",
+            "SPRZEDAŻ OPODATKOWANA",
+            "SUMA PLN 79,90",
+            "XYZ1234567890",
+            "Karta"
+        ]
+
+        sections = parser.split_receipt_sections()
+
+        assert "header" in sections
+        assert "items" in sections
+        assert "summary" in sections
+        assert "identifier" in sections
+        assert "footer" in sections
+
+        assert "SKLEP ABC" in sections["header"]
+        assert "SVETER" in sections["items"]
+        assert "SUMA PLN" in sections["summary"]
+        assert "XYZ1234567890" in sections["identifier"]

@@ -3,7 +3,7 @@ from os import path
 from re import search, split, compile, VERBOSE, IGNORECASE
 from datetime import datetime, date, time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union, Any
 from numpy import ndarray
 from rapidfuzz import fuzz
 from easyocr import Reader
@@ -15,7 +15,7 @@ import cv2
 class ReceiptParser:
 
     # Recognized payment methods (keyword: type)
-    supported_payment_methods = {
+    supported_payment_methods_patterns = {
         'Karta': 'CARD',
         'Gotówka': 'CASH'
     }
@@ -46,18 +46,18 @@ class ReceiptParser:
 
         self.reader = Reader(lang_list=['pl', 'en'], gpu=self.gpu)
 
-    def load_image_from_path(self, image_path: Path):
+    def load_image_from_path(self, image_path: Path) -> None:
         # Check whether provided path is correct
         if not path.exists(image_path):
             raise FileNotFoundError(f'File {image_path} not found')
         self.__load_image(image_path.as_posix())
 
-    def load_image_from_np_ndarray(self, np_ndarray: ndarray):
+    def load_image_from_np_ndarray(self, np_ndarray: ndarray) -> None:
         if np_ndarray is None or np_ndarray.size == 0:
             raise ValueError('Invalid numpy array')
         self.__load_image(np_ndarray)
 
-    def __load_image(self, image_input):
+    def __load_image(self, image_input: Union[str, ndarray]) -> None:
         if isinstance(image_input, str):
             image = cv2.imread(image_input)
         elif isinstance(image_input, ndarray):
@@ -67,7 +67,7 @@ class ReceiptParser:
 
         self.image = image
 
-    def extract_text(self):
+    def extract_text(self) -> list[str]:
         """
         Read text from an image
         :return:  raw output
@@ -90,7 +90,7 @@ class ReceiptParser:
 
         return self.raw_output
 
-    def split_receipt_sections(self) -> dict:
+    def split_receipt_sections(self) -> dict[str, str]:
         """
         Split raw image output into sections
         :return: dictionary of sections (header, items, summary, identifier, footer)
@@ -173,7 +173,7 @@ class ReceiptParser:
 
         return self.sections
 
-    def extract_data_from_sections(self):
+    def extract_data_from_sections(self) -> None:
         """
         Extract data from extracted sections and save it
         """
@@ -192,7 +192,7 @@ class ReceiptParser:
         self.items, self.discounts = self.extract_items(self.sections['items'])
 
 
-    def to_json(self):
+    def to_json(self) -> dict[str, Any]:
         """
         Convert parsed sections to JSON
         :return: JSON representation of sections
@@ -206,7 +206,7 @@ class ReceiptParser:
             "discounts": self.discounts
         }
 
-    def save_to_json_file(self, filepath):
+    def save_to_json_file(self, filepath: Union[str, Path]) -> None:
         """
         Generate JSON file from sections. If the file doesn't exist, create a new one.
         :param filepath: path to a JSON file
@@ -214,7 +214,7 @@ class ReceiptParser:
         with open(filepath, "w", encoding="utf-8") as f:
             dump(self.to_json(), f, indent=4, ensure_ascii=False)
 
-    def run(self):
+    def run(self) -> dict[str, Any]:
         """
         MAIN FUNCTION\n
         1. Extract text from an image
@@ -233,8 +233,7 @@ class ReceiptParser:
 
     # TODO: Add variable offset
     @staticmethod
-    def fuzzy_find_substring(text: str, pattern: str, threshold: int = 85, ignore_case: bool = True) -> Optional[
-        tuple[int, int]]:
+    def fuzzy_find_substring(text: str, pattern: str, threshold: int = 85, ignore_case: bool = True) -> Optional[tuple[int, int]]:
         """
         Perform fuzzy search
 
@@ -261,7 +260,7 @@ class ReceiptParser:
 
     # TODO: Code cleanup
     @staticmethod
-    def extract_items(items_section: str, estimate_items_count: bool = True, estimation_threshold: float = 0.05):
+    def extract_items(items_section: str, estimate_items_count: bool = True, estimation_threshold: float = 0.05) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """
         Attempt to extract items from text
         :param items_section: items section
@@ -451,7 +450,7 @@ class ReceiptParser:
         :return: payment_method name (if supported) or None
         """
 
-        for payment_method_pattern, payment_method_name in ReceiptParser.supported_payment_methods.items():
+        for payment_method_pattern, payment_method_name in ReceiptParser.supported_payment_methods_patterns.items():
             match = ReceiptParser.fuzzy_find_substring(payment_method_search_section, pattern=payment_method_pattern, threshold=70)
             if match is not None:
                 return payment_method_name
@@ -485,7 +484,7 @@ class ReceiptParser:
             return None
 
     @staticmethod
-    def parse_count(item_str: str):
+    def parse_count(item_str: str) -> tuple[Optional[int], str]:
         """
         Attempt to parse count from a string
         :param item_str: string representation of an item

@@ -176,8 +176,8 @@ class ReceiptParser:
         """
         Extract data from extracted sections and save it
         """
-        # Date can be found in the header or identifier section
-        raw_date = self.extract_date(self.sections['header']) or self.extract_date(self.sections['identifier'])
+        # Date can be found in the header, identifier or footer section
+        raw_date = self.extract_date(self.sections['header']) or self.extract_date(self.sections['identifier']) or self.extract_date(self.sections['footer'])
         # Time can be found in the identifier section or footer section
         raw_time = self.extract_time(self.sections['identifier']) or self.extract_time(self.sections['footer'])
 
@@ -258,7 +258,8 @@ class ReceiptParser:
         return best_match
 
     @staticmethod
-    def extract_items(items_section: str, estimate_items_count: bool = True, estimation_threshold: float = 0.05) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    def extract_items(items_section: str, estimate_items_count: bool = True, estimation_threshold: float = 0.05) -> \
+    tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """
         Attempt to extract items from text
         :param items_section: items section
@@ -383,6 +384,30 @@ class ReceiptParser:
             })
 
             idx_current = match.end()
+
+        # Final leftover check (to capture last discount or ignored line)
+        leftover = items_section[idx_current:].strip()
+
+        if leftover:
+
+            for discount_pattern in ReceiptParser.supported_discount_patterns:
+                discount_match = ReceiptParser.fuzzy_find_substring(leftover, pattern=discount_pattern, threshold=65)
+
+                if discount_match:
+                    discount_amount_match = search(r'([~-]?\s*\d+\s*[.,\s]\s*\d{2})', leftover[discount_match[1]:])
+
+                    if discount_amount_match:
+                        discount_name = leftover[discount_match[0]:discount_match[1] + discount_amount_match.start()]
+                        discount_amount = ReceiptParser.parse_price(discount_amount_match.group(1))
+                        _append_discount(discount_name, discount_amount)
+
+                    else:
+                        # No price found – still register it if price is present before
+                        discount_amount = ReceiptParser.parse_price(leftover)
+
+                        if discount_amount is not None:
+                            _append_discount(leftover, discount_amount)
+                    break
 
         return items, discounts
 

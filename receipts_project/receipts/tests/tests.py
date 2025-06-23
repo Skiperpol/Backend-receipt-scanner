@@ -4,6 +4,8 @@ from rest_framework.test import APITestCase
 from rest_framework.authtoken.models import Token
 from django.urls import reverse
 from rest_framework import status
+from django.utils import timezone
+from datetime import timezone as dt_timezone
 
 class AuthenticatedAPITestCase(APITestCase):
     """
@@ -31,6 +33,7 @@ class TransactionAPITests(AuthenticatedAPITestCase):
     def test_create_transaction(self) -> None:
         url = reverse("tx-list")
         payload: dict[str, Any] = {
+            "date": timezone.now().isoformat(),
             "total_amount": "100.00",
             "description": "Test"
         }
@@ -41,8 +44,9 @@ class TransactionAPITests(AuthenticatedAPITestCase):
 class TransactionDetailAPITests(AuthenticatedAPITestCase):
     def setUp(self) -> None:
         super().setUp()
-        from .models import Transaction
+        from ..models import Transaction
         self.tx = Transaction.objects.create(
+            date=timezone.now(),
             total_amount=50.0,
             description="Init"
         )
@@ -54,10 +58,12 @@ class TransactionDetailAPITests(AuthenticatedAPITestCase):
 
     def test_update_transaction(self) -> None:
         url = reverse("tx-detail", args=[self.tx.pk])
-        data: dict[str, Any] = {
+        data = {
+            "date": timezone.now().isoformat(),
             "total_amount": "75.00",
             "description": "Update"
         }
+
         response = self.client.put(url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -70,8 +76,9 @@ class TransactionDetailAPITests(AuthenticatedAPITestCase):
 class ProductAPITests(AuthenticatedAPITestCase):
     def setUp(self) -> None:
         super().setUp()
-        from .models import Transaction
+        from ..models import Transaction
         self.tx = Transaction.objects.create(
+            date=timezone.now(),
             total_amount=20.0,
             description="Init"
         )
@@ -95,8 +102,108 @@ class ProductAPITests(AuthenticatedAPITestCase):
 class ReceiptScanAPITests(AuthenticatedAPITestCase):
     def test_receipt_scan_not_implemented(self) -> None:
         url = reverse("receipt-scan")
-        response = self.client.post(url, {}, format="json")
-        self.assertIn(
-            response.status_code,
-            (status.HTTP_501_NOT_IMPLEMENTED, status.HTTP_405_METHOD_NOT_ALLOWED)
+        response = self.client.post(url, {}, format="multipart")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class ProductDetailAPITests(AuthenticatedAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        from ..models import Transaction, Product
+        self.tx = Transaction.objects.create(
+            date=timezone.now(),
+            total_amount=10.0,
+            description="Init",
         )
+        self.product = Product.objects.create(
+            name="Prod",
+            price=1.0,
+            transaction=self.tx,
+        )
+
+    def test_get_product_detail(self) -> None:
+        url = reverse("prod-detail", args=[self.product.pk])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_update_product(self) -> None:
+        url = reverse("prod-detail", args=[self.product.pk])
+        data: dict[str, Any] = {
+            "name": "Updated",
+            "price": "2.50",
+            "transaction": self.tx.pk,
+        }
+        response = self.client.put(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_delete_product(self) -> None:
+        url = reverse("prod-detail", args=[self.product.pk])
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+
+class UserUpdateAPITests(AuthenticatedAPITestCase):
+    def test_update_username_success(self) -> None:
+        url = reverse("user-update")
+        response = self.client.patch(url, {"username": "newname"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, "newname")
+
+class ChangePasswordAPITests(AuthenticatedAPITestCase):
+    def test_change_password_success(self) -> None:
+        url = reverse("change-password")
+        response = self.client.post(
+            url,
+            {"password": "NewStrongPass123"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("NewStrongPass123"))
+
+    def test_change_password_missing(self) -> None:
+        url = reverse("change-password")
+        response = self.client.post(url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class CalendarAPITests(AuthenticatedAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        from django.utils import timezone
+        from ..models import Transaction
+
+        Transaction.objects.create(
+            date=timezone.datetime(2024, 1, 1, 10, 0, tzinfo=dt_timezone.utc),
+            total_amount=10.0,
+            description="Jan1",
+        )
+        Transaction.objects.create(
+            date=timezone.datetime(2024, 1, 2, 10, 0, tzinfo=dt_timezone.utc),
+            total_amount=20.0,
+            description="Jan2",
+        )
+        Transaction.objects.create(
+            date=timezone.datetime(2024, 2, 1, 10, 0, tzinfo=dt_timezone.utc),
+            total_amount=30.0,
+            description="Feb1",
+        )
+
+def test_daily_totals(self) -> None:
+    response = self.client.get(
+        "/api/calendar/daily/",
+        {"year": 2024, "month": 1},
+    )
+    self.assertEqual(response.status_code, status.HTTP_200_OK)
+    result = {int(k): v for k, v in response.json().items()}
+    self.assertEqual(result, {1: 10.0, 2: 20.0})
+
+def test_monthly_totals(self) -> None:
+    response = self.client.get(
+        "/api/calendar/monthly/",
+        {"year": 2024},
+    )
+    self.assertEqual(response.status_code, status.HTTP_200_OK)
+    result = {int(k): v for k, v in response.json().items()}
+    self.assertEqual(result, {1: 30.0, 2: 30.0})

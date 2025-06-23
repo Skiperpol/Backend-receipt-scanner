@@ -13,5 +13,5 @@ urlpatterns = [
     path("receipts/scan/", ReceiptScanAPI.as_view(), name="receipt-scan"),
     path("auth/user/", UserUpdateAPI.as_view(), name="user-update"),    
     path("auth/password/", ChangePasswordAPI.as_view(), name="change-password"), 
-    path('api/calendar/<str:period>/', CalendarAPI.as_view()),
+    path('calendar/<str:period>/', CalendarAPI.as_view()),
 ]

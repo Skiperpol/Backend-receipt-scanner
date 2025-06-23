@@ -50,7 +50,6 @@ class TransactionListAPI(APIView):
         return Response(serializer.data)
 
     def post(self, request: Request) -> Response:
-        print("request.data:", request.data)
         serializer = TransactionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()

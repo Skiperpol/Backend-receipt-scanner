@@ -14,12 +14,14 @@ import cv2
 # TODO: Optimize parsing (to do it faster)
 class ReceiptParser:
 
+    # Recognized payment methods (keyword: type)
     supported_payment_methods = {
         'Karta': 'CARD',
         'Gotówka': 'CASH'
     }
 
-    suported_discount_patterns = [
+    # Recognized discount keywords
+    supported_discount_patterns = [
         'Rabat', 'Zniżka', 'Opust'
     ]
 
@@ -191,6 +193,10 @@ class ReceiptParser:
 
 
     def to_json(self):
+        """
+        Convert parsed sections to JSON
+        :return: JSON representation of sections
+        """
         return {
             "date": None if self.date is None else self.date.isoformat(),
             "time": None if self.time is None else self.time.strftime("%H:%M:%S"),
@@ -201,6 +207,10 @@ class ReceiptParser:
         }
 
     def save_to_json_file(self, filepath):
+        """
+        Generate JSON file from sections. If the file doesn't exist, create a new one.
+        :param filepath: path to a JSON file
+        """
         with open(filepath, "w", encoding="utf-8") as f:
             dump(self.to_json(), f, indent=4, ensure_ascii=False)
 
@@ -320,7 +330,7 @@ class ReceiptParser:
             is_item_actually_discount = False
 
             # Check for discounts - approach 1: try to find keywords
-            for discount_pattern in ReceiptParser.suported_discount_patterns:
+            for discount_pattern in ReceiptParser.supported_discount_patterns:
                 discount_match = ReceiptParser.fuzzy_find_substring(item_raw, pattern=discount_pattern, threshold=65)
 
                 if discount_match:
@@ -451,6 +461,11 @@ class ReceiptParser:
 
     @staticmethod
     def parse_price(price_str: str) -> Optional[float]:
+        """
+        Attempt to parse price from a string
+        :param price_str: price representation of a price
+        :return: price or None
+        """
 
         parts = [s.strip() for s in split(r"[,.\s]+", price_str)]
 
@@ -471,6 +486,11 @@ class ReceiptParser:
 
     @staticmethod
     def parse_count(item_str: str):
+        """
+        Attempt to parse count from a string
+        :param item_str: string representation of an item
+        :return: tuple (count or None, item_str without count part)
+        """
 
         last_characters_search_count = 5 # Usually the count can be found near the end of a product's name, ex. MASŁO 10szt, CHLEB * 2
 

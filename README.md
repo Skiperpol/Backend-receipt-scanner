@@ -39,6 +39,17 @@ pip install -r requirements.txt
 
 Aplikacja będzie dostępna pod adresem `http://127.0.0.1:8000/`.
 
+## Docker
+
+Aplikację można również uruchomić w kontenerze Docker. Zbuduj obraz i uruchom
+serwis poleceniem:
+
+```bash
+docker compose up --build
+```
+
+Serwer będzie dostępny pod adresem `http://127.0.0.1:8000/`.
+
 ## Najważniejsze endpointy
 
 Wybrane ścieżki API znajdują się w pliku `receipts/urls.py`:

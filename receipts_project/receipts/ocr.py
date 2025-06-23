@@ -10,6 +10,7 @@ from easyocr import Reader
 
 import cv2
 
+
 class ReceiptParser:
 
     # Recognized payment methods (keyword: type)
@@ -20,7 +21,7 @@ class ReceiptParser:
 
     # Recognized discount keywords
     supported_discount_patterns = [
-        'Rabat', 'Zniżka', 'Opust'
+        'Rabat', 'Zniżka', 'Opust', 'Obniżka'
     ]
 
     def __init__(self, gpu: bool = True):
@@ -256,7 +257,6 @@ class ReceiptParser:
 
         return best_match
 
-    # TODO: Code cleanup
     @staticmethod
     def extract_items(items_section: str, estimate_items_count: bool = True, estimation_threshold: float = 0.05) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """
@@ -331,7 +331,6 @@ class ReceiptParser:
                 discount_match = ReceiptParser.fuzzy_find_substring(item_raw, pattern=discount_pattern, threshold=65)
 
                 if discount_match:
-                    # print(f'Discount pattern: {discount_pattern}, found: {item_raw[discount_match[0]:discount_match[1]]}')
                     # Potential discount found (keyword match successful)
                     search_start = discount_match[1]
                     discount_amount_match = search(r'([~-]?\s*\d+\s*[.,\s]\s*\d{2})', item_raw[search_start:])
@@ -344,18 +343,15 @@ class ReceiptParser:
                         discount_name = item_raw[start:search_start + discount_amount_match.start()]
                         discount_amount = ReceiptParser.parse_price(discount_amount_match.group(1))
                         item_raw = item_raw[:start] + item_raw[end:]  # Exclude found discount from item name
-                        # print(f'Found discount (combination): {discount_name} ({discount_amount})')
                         _append_discount(discount_name, discount_amount)
                     else:
                         # This whole item is probably a discount. Do not add it to the items list
                         is_item_actually_discount = True
-                        # print(f'Found discount (single): {item_raw} ({price})')
                         _append_discount(item_raw, price)
 
             # Check for discounts - approach 2: try to find negative total
             if not is_item_actually_discount and total is not None and total < 0:
                 is_item_actually_discount = True
-                # print(f'Found discount (negative price): {item_raw} ({price})')
                 _append_discount(item_raw, price)
 
             # If the current item is in fact a discount do not add it to the items list and skip the rest of this main 'for' loop
@@ -416,24 +412,22 @@ class ReceiptParser:
         :param text: search section
         :return: first valid time in HH:MM format or None
         """
-
-        match = search(r'\d{2}:\d{2}(?::\d{2})?\b', text)
+        # First: try strict format HH:MM or HH:MM:SS
+        match = search(r'(\d{2}):(\d{2})(?::\d{2})?', text)
         if match:
-            # Return hours and minutes
-            return match.group()[:5]
-
-        # If time could not be found, try again with less restrict constraints
-
-        # Valid formats: 12:34, 12.34, 12;34 with optional seconds
-        pattern = compile(r'(\d{1,2})[.,:;](\d{2})(?:[:.;]\d{2})?\b')
-
-        for match in pattern.finditer(text):
-            hours, minutes = match.group(1), match.group(2)
-
             try:
-                h = int(hours)
-                m = int(minutes)
-                if 0 <= h <= 24 and 0 <= m <= 59: # Only return valid time (somewhat prevents reading prices as time)
+                h, m = int(match.group(1)), int(match.group(2))
+                if 0 <= h <= 23 and 0 <= m <= 59:
+                    return f"{h:02d}:{m:02d}"
+            except ValueError:
+                pass
+
+        # Second: try alternative separators (., ;), e.g. 12.34, 12;34
+        pattern = compile(r'(\d{1,2})[.,:;](\d{2})(?:[:.;]\d{2})?')
+        for match in pattern.finditer(text):
+            try:
+                h, m = int(match.group(1)), int(match.group(2))
+                if 0 <= h <= 23 and 0 <= m <= 59:
                     return f"{h:02d}:{m:02d}"
             except ValueError:
                 continue

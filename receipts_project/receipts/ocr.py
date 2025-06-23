@@ -10,8 +10,6 @@ from easyocr import Reader
 
 import cv2
 
-# TODO: Add type annotations
-# TODO: Optimize parsing (to do it faster)
 class ReceiptParser:
 
     # Recognized payment methods (keyword: type)
@@ -70,7 +68,7 @@ class ReceiptParser:
     def extract_text(self) -> list[str]:
         """
         Read text from an image
-        :return:  raw output
+        :return: raw output
         """
         # Check whether the receipt has been loaded correctly
         if self.image is None:
@@ -206,7 +204,7 @@ class ReceiptParser:
             "discounts": self.discounts
         }
 
-    def save_to_json_file(self, filepath: Union[str, Path]) -> None:
+    def save_to_json_file(self, filepath: Path) -> None:
         """
         Generate JSON file from sections. If the file doesn't exist, create a new one.
         :param filepath: path to a JSON file
@@ -231,15 +229,15 @@ class ReceiptParser:
 
     # Static methods used for various data conversions or extractions --------------------------------------------------
 
-    # TODO: Add variable offset
     @staticmethod
-    def fuzzy_find_substring(text: str, pattern: str, threshold: int = 85, ignore_case: bool = True) -> Optional[tuple[int, int]]:
+    def fuzzy_find_substring(text: str, pattern: str, threshold: int = 85, offset: int = 2, ignore_case: bool = True) -> Optional[tuple[int, int]]:
         """
         Perform fuzzy search
 
         :param text: search section
         :param pattern: keyword
         :param threshold: confidence threshold
+        :param offset: search window offset
         :param ignore_case: ignore case. If set to True, converts search section and keyword to lowercase before performing fuzzy search
         :return: tuple: (index_start, index_end) or None
         """
@@ -250,7 +248,7 @@ class ReceiptParser:
 
         window_size = len(pattern)
         for i in range(len(text) - window_size + 1):
-            window = text[i:i + window_size + 2]  # +2 offset in case of poor quality raw data. Higher values = less accuracy but higher chance of matching
+            window = text[i:i + window_size + offset]  # offset in case of poor quality raw data. Higher values = less accuracy but higher chance of matching
             score = fuzz.ratio(window, pattern)
             if score > best_score and score >= threshold:
                 best_score = score
@@ -545,13 +543,13 @@ Examples:
 # 1
 
     parser = ReceiptParser()
-    parser.load_image_from_path('receipt.png')
+    parser.load_image_from_path(Path('receipt.png'))
     
     parser.extract_text()
     parser.split_receipt_sections()
     parser.extract_data_from_sections()
     
-    parser.save_to_json_file('receipt.json'))
+    parser.save_to_json_file(Path('receipt.json'))
     
 # 2
     

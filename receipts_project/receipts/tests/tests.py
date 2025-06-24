@@ -192,7 +192,7 @@ class CalendarAPITests(AuthenticatedAPITestCase):
 
 def test_daily_totals(self) -> None:
     response = self.client.get(
-        "/api/calendar/daily/",
+        "/calendar/daily/",
         {"year": 2024, "month": 1},
     )
     self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -201,7 +201,7 @@ def test_daily_totals(self) -> None:
 
 def test_monthly_totals(self) -> None:
     response = self.client.get(
-        "/api/calendar/monthly/",
+        "/calendar/monthly/",
         {"year": 2024},
     )
     self.assertEqual(response.status_code, status.HTTP_200_OK)
